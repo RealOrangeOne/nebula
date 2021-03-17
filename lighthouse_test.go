@@ -114,7 +114,7 @@ func BenchmarkLighthouseHandleRequest(b *testing.B) {
 		p, err := proto.Marshal(req)
 		assert.NoError(b, err)
 		for n := 0; n < b.N; n++ {
-			lhh.HandleRequest(rAddr, 2, p, nil, mw)
+			lhh.HandleRequest(rAddr, 2, p, nil, mw, 0)
 		}
 	})
 	b.Run("found", func(b *testing.B) {
@@ -130,7 +130,7 @@ func BenchmarkLighthouseHandleRequest(b *testing.B) {
 		assert.NoError(b, err)
 
 		for n := 0; n < b.N; n++ {
-			lhh.HandleRequest(rAddr, 2, p, nil, mw)
+			lhh.HandleRequest(rAddr, 2, p, nil, mw, 0)
 		}
 	})
 }

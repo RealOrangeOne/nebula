@@ -13,10 +13,10 @@ import (
 
 // This function constructs a handshake packet, but does not actually send it
 // Sending is done by the handshake manager
-func ixHandshakeStage0(f *Interface, vpnIp uint32, hostinfo *HostInfo) {
+func ixHandshakeStage0(f *Interface, vpnIp uint32, hostinfo *HostInfo, q int) {
 	// This queries the lighthouse if we don't know a remote for the host
 	if hostinfo.remote == nil {
-		ips, err := f.lightHouse.Query(vpnIp, f)
+		ips, err := f.lightHouse.Query(vpnIp, f, q)
 		if err != nil {
 			//l.Debugln(err)
 		}
@@ -73,7 +73,7 @@ func ixHandshakeStage0(f *Interface, vpnIp uint32, hostinfo *HostInfo) {
 
 }
 
-func ixHandshakeStage1(f *Interface, addr *udpAddr, packet []byte, h *Header) {
+func ixHandshakeStage1(f *Interface, addr *udpAddr, packet []byte, h *Header, q int) {
 	ci := f.newConnectionState(false, noise.HandshakeIX, []byte{}, 0)
 	// Mark packet 1 as seen so it doesn't show up as missed
 	ci.window.Update(1)
@@ -201,7 +201,7 @@ func ixHandshakeStage1(f *Interface, addr *udpAddr, packet []byte, h *Header) {
 		case ErrAlreadySeen:
 			msg = existing.HandshakePacket[2]
 			f.messageMetrics.Tx(handshake, NebulaMessageSubType(msg[1]), 1)
-			err := f.outside.WriteTo(msg, addr)
+			err = f.writers[q].WriteTo(msg, addr)
 			if err != nil {
 				l.WithField("vpnIp", IntIp(existing.hostId)).WithField("udpAddr", addr).
 					WithField("handshake", m{"stage": 2, "style": "ix_psk0"}).WithField("cached", true).
@@ -223,7 +223,7 @@ func ixHandshakeStage1(f *Interface, addr *udpAddr, packet []byte, h *Header) {
 				Info("Prevented a handshake race")
 
 			// Send a test packet to trigger an authenticated tunnel test, this should suss out any lingering tunnel issues
-			f.SendMessageToVpnIp(test, testRequest, vpnIP, []byte(""), make([]byte, 12, 12), make([]byte, mtu))
+			f.SendMessageToVpnIp(test, testRequest, vpnIP, []byte(""), make([]byte, 12, 12), make([]byte, mtu), q)
 			return
 		case ErrLocalIndexCollision:
 			// This means we failed to insert because of collision on localIndexId. Just let the next handshake packet retry
@@ -250,7 +250,7 @@ func ixHandshakeStage1(f *Interface, addr *udpAddr, packet []byte, h *Header) {
 
 	// Do the send
 	f.messageMetrics.Tx(handshake, NebulaMessageSubType(msg[1]), 1)
-	err = f.outside.WriteTo(msg, addr)
+	err = f.writers[q].WriteTo(msg, addr)
 	if err != nil {
 		l.WithField("vpnIp", IntIp(vpnIP)).WithField("udpAddr", addr).
 			WithField("certName", certName).
@@ -267,12 +267,12 @@ func ixHandshakeStage1(f *Interface, addr *udpAddr, packet []byte, h *Header) {
 			Info("Handshake message sent")
 	}
 
-	hostinfo.handshakeComplete()
+	hostinfo.handshakeComplete(q)
 
 	return
 }
 
-func ixHandshakeStage2(f *Interface, addr *udpAddr, hostinfo *HostInfo, packet []byte, h *Header) bool {
+func ixHandshakeStage2(f *Interface, addr *udpAddr, hostinfo *HostInfo, packet []byte, h *Header, q int) bool {
 	if hostinfo == nil {
 		return true
 	}
@@ -362,7 +362,7 @@ func ixHandshakeStage2(f *Interface, addr *udpAddr, hostinfo *HostInfo, packet [
 	hostinfo.CreateRemoteCIDR(remoteCert)
 
 	f.handshakeManager.Complete(hostinfo, f)
-	hostinfo.handshakeComplete()
+	hostinfo.handshakeComplete(q)
 	f.metricHandshakes.Update(duration)
 
 	return false

@@ -51,8 +51,8 @@ type LightHouse struct {
 }
 
 type EncWriter interface {
-	SendMessageToVpnIp(t NebulaMessageType, st NebulaMessageSubType, vpnIp uint32, p, nb, out []byte)
-	SendMessageToAll(t NebulaMessageType, st NebulaMessageSubType, vpnIp uint32, p, nb, out []byte)
+	SendMessageToVpnIp(t NebulaMessageType, st NebulaMessageSubType, vpnIp uint32, p, nb, out []byte, q int)
+	SendMessageToAll(t NebulaMessageType, st NebulaMessageSubType, vpnIp uint32, p, nb, out []byte, q int)
 }
 
 func NewLightHouse(amLighthouse bool, myIp uint32, ips []uint32, interval int, nebulaPort uint32, pc *udpConn, punchBack bool, punchDelay time.Duration, metricsEnabled bool) *LightHouse {
@@ -107,9 +107,9 @@ func (lh *LightHouse) ValidateLHStaticEntries() error {
 	return nil
 }
 
-func (lh *LightHouse) Query(ip uint32, f EncWriter) ([]*udpAddr, error) {
+func (lh *LightHouse) Query(ip uint32, f EncWriter, q int) ([]*udpAddr, error) {
 	if !lh.IsLighthouseIP(ip) {
-		lh.QueryServer(ip, f)
+		lh.QueryServer(ip, f, q)
 	}
 	lh.RLock()
 	if v, ok := lh.addrMap[ip]; ok {
@@ -121,7 +121,7 @@ func (lh *LightHouse) Query(ip uint32, f EncWriter) ([]*udpAddr, error) {
 }
 
 // This is asynchronous so no reply should be expected
-func (lh *LightHouse) QueryServer(ip uint32, f EncWriter) {
+func (lh *LightHouse) QueryServer(ip uint32, f EncWriter, q int) {
 	if !lh.amLighthouse {
 		// Send a query to the lighthouses and hope for the best next time
 		query, err := proto.Marshal(NewLhQueryByInt(ip))
@@ -134,7 +134,7 @@ func (lh *LightHouse) QueryServer(ip uint32, f EncWriter) {
 		nb := make([]byte, 12, 12)
 		out := make([]byte, mtu)
 		for n := range lh.lighthouses {
-			f.SendMessageToVpnIp(lightHouse, 0, n, query, nb, out)
+			f.SendMessageToVpnIp(lightHouse, 0, n, query, nb, out, q)
 		}
 	}
 }
@@ -300,7 +300,7 @@ func (lh *LightHouse) SendUpdate(f EncWriter) {
 			l.Debugf("Invalid marshal to update")
 		}
 		//l.Error("LIGHTHOUSE PACKET SEND", mm)
-		f.SendMessageToVpnIp(lightHouse, 0, vpnIp, mm, nb, out)
+		f.SendMessageToVpnIp(lightHouse, 0, vpnIp, mm, nb, out, 0)
 
 	}
 }
@@ -363,7 +363,7 @@ func (lhh *LightHouseHandler) setIpAndPortsFromNetIps(ips []*udpAddr) []*ip4Or6 
 	return lhh.iapp
 }
 
-func (lhh *LightHouseHandler) HandleRequest(rAddr *udpAddr, vpnIp uint32, p []byte, c *cert.NebulaCertificate, f EncWriter) {
+func (lhh *LightHouseHandler) HandleRequest(rAddr *udpAddr, vpnIp uint32, p []byte, c *cert.NebulaCertificate, f EncWriter, q int) {
 	lh := lhh.lh
 	n := lhh.resetMeta()
 	err := proto.UnmarshalMerge(p, n)
@@ -392,7 +392,7 @@ func (lhh *LightHouseHandler) HandleRequest(rAddr *udpAddr, vpnIp uint32, p []by
 		}
 
 		//l.Debugln("Got Query")
-		ips, err := lh.Query(n.Details.VpnIp, f)
+		ips, err := lh.Query(n.Details.VpnIp, f, q)
 		if err != nil {
 			//l.Debugf("Can't answer query %s from %s because error: %s", IntIp(n.Details.VpnIp), rAddr, err)
 			return
@@ -426,10 +426,10 @@ func (lhh *LightHouseHandler) HandleRequest(rAddr *udpAddr, vpnIp uint32, p []by
 				return
 			}
 			lh.metricTx(NebulaMeta_HostQueryReply, 1)
-			f.SendMessageToVpnIp(lightHouse, 0, vpnIp, reply, lhh.nb, lhh.out[:0])
+			f.SendMessageToVpnIp(lightHouse, 0, vpnIp, reply, lhh.nb, lhh.out[:0], q)
 
 			// This signals the other side to punch some zero byte udp packets
-			ips, err = lh.Query(vpnIp, f)
+			ips, err = lh.Query(vpnIp, f, q)
 			if err != nil {
 				l.WithField("vpnIp", IntIp(vpnIp)).Debugln("Can't notify host to punch")
 				return
@@ -459,7 +459,7 @@ func (lhh *LightHouseHandler) HandleRequest(rAddr *udpAddr, vpnIp uint32, p []by
 
 				reply, _ := proto.Marshal(n)
 				lh.metricTx(NebulaMeta_HostPunchNotification, 1)
-				f.SendMessageToVpnIp(lightHouse, 0, reqVpnIP, reply, lhh.nb, lhh.out[:0])
+				f.SendMessageToVpnIp(lightHouse, 0, reqVpnIP, reply, lhh.nb, lhh.out[:0], q)
 			}
 			//fmt.Println(reply, remoteaddr)
 		}
@@ -565,7 +565,7 @@ func (lhh *LightHouseHandler) HandleRequest(rAddr *udpAddr, vpnIp uint32, p []by
 				// TODO we have to allocate a new output buffer here since we are spawning a new goroutine
 				// for each punchBack packet. We should move this into a timerwheel or a single goroutine
 				// managed by a channel.
-				f.SendMessageToVpnIp(test, testRequest, n.Details.VpnIp, []byte(""), make([]byte, 12, 12), make([]byte, mtu))
+				f.SendMessageToVpnIp(test, testRequest, n.Details.VpnIp, []byte(""), make([]byte, 12, 12), make([]byte, mtu), q)
 			}()
 		}
 	}
