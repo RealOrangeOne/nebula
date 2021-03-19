@@ -330,6 +330,14 @@ func (lh *LightHouse) NewRequestHandler() *LightHouseHandler {
 	return lhh
 }
 
+func (lh *LightHouse) metricRx(t NebulaMeta_MessageType, i int64) {
+	lh.metrics.Rx(NebulaMessageType(t), 0, i)
+}
+
+func (lh *LightHouse) metricTx(t NebulaMeta_MessageType, i int64) {
+	lh.metrics.Tx(NebulaMessageType(t), 0, i)
+}
+
 // This method is similar to Reset(), but it re-uses the pointer structs
 // so that we don't have to re-allocate them
 func (lhh *LightHouseHandler) resetMeta() *NebulaMeta {
@@ -584,12 +592,4 @@ func (lhh *LightHouseHandler) handleHostPunchNotification(n *NebulaMeta, vpnIp u
 			w.SendMessageToVpnIp(test, testRequest, n.Details.VpnIp, []byte(""), make([]byte, 12, 12), make([]byte, mtu))
 		}()
 	}
-}
-
-func (lh *LightHouse) metricRx(t NebulaMeta_MessageType, i int64) {
-	lh.metrics.Rx(NebulaMessageType(t), 0, i)
-}
-
-func (lh *LightHouse) metricTx(t NebulaMeta_MessageType, i int64) {
-	lh.metrics.Tx(NebulaMessageType(t), 0, i)
 }
